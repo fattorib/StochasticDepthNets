@@ -12,7 +12,7 @@ from torchvision import transforms, utils
 import time
 
 
-if __name__ == '__main__':
+def main():
     transform_test = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406],
@@ -29,3 +29,7 @@ if __name__ == '__main__':
     model_class.eval(train=False)
     t1 = time.time()
     print(f'Total inference time:{(t1-t0)/60.:2f} minutes.')
+
+
+if __name__ == '__main__':
+    main()

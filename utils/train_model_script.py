@@ -12,8 +12,9 @@ from torchvision import transforms, utils
 import time
 
 
-if __name__ == '__main__':
+def main():
     cudnn.benchmark = True
+
     # Data augmentation as outlined in paper
     transform_train = transforms.Compose([
         transforms.RandomCrop((32, 32), padding=4, fill=0,
@@ -51,3 +52,7 @@ if __name__ == '__main__':
     print(f'Total training time:{(t1-t0)/60.:2f} minutes.')
     model_class.eval(train=False)
     model_class.eval(train=True)
+
+
+if __name__ == '__main__':
+    main()
