@@ -6,12 +6,14 @@ import torch.nn.functional as F
 import copy
 import torch.nn.init as init
 from torch import Tensor
+from scipy.stats import bernoulli
 
 
 def _weights_init(m):
     classname = m.__class__.__name__
     if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
-        init.kaiming_normal_(m.weight)
+        init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+
 
 # ----------Building Blocks----------
 
@@ -23,6 +25,9 @@ class ResidualBlock(nn.Module):
         self.in_filters = in_filters
         self.out_filters = out_filters
         self.N = N
+
+        # TBD whether this is useful
+        self.np_lp = layer_probs.clone().detach()
 
         self.downsample = downsample
         self.conv_block = nn.Sequential(nn.Conv2d(
@@ -66,26 +71,47 @@ class ResidualBlock(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
 
-        if nn.Module().training:
+        if self.training:
             b_l = torch.bernoulli(self.layer_probs)
+
+            for i in range(len(self.residual_block)):
+                if torch.rand(1)[0] <= self.np_lp[i]:
+                    residual = x
+                    x = self.residual_block[i](x)
+                    x += residual
+                    x = F.relu(x)
+                else:
+                    x = F.relu(x)
+            # Perform downsampling on last layer and add final residual
+
+            residual = x
+            x = b_l[-1]*self.final_block(x)
+            if self.downsample:
+                x += self.pad_identity(residual)
+            else:
+                # Don't downsample on final layer
+                x += residual
+            return F.relu(x)
 
         else:
             b_l = self.layer_probs
+            for i in range(len(self.residual_block)):
+                residual = x
+                x = b_l[i]*self.residual_block[i](x)
+                x += residual
 
-        for i in range(len(self.residual_block)):
+                x = F.relu(x)
+
+            # Perform downsampling on last layer and add final residual
             residual = x
-            x = b_l[i]*self.residual_block[i](x)
-            x += residual
-            x = F.relu(x)
-        # Perform downsampling on last layer and add final residual
-        residual = x
-        x = b_l[-1]*self.final_block(x)
-        if self.downsample:
-            x += self.pad_identity(residual)
-        else:
-            # Don't downsample on final layer
-            x += residual
-        return F.relu(x)
+            x = b_l[-1]*self.final_block(x)
+
+            if self.downsample:
+                x += self.pad_identity(residual)
+            else:
+                # Don't downsample on final layer
+                x += residual
+            return F.relu(x)
 
     def pad_identity(self, x):
         # Perform padding on filters to allow final residual connections
@@ -98,18 +124,18 @@ class StochasticDepthResNet(nn.Module):
 
     def __init__(self, filters_list, N, p_L=0.5):
         super(StochasticDepthResNet, self).__init__()
-        """Stochastic depth ResNet as described in the paper 
+        """Stochastic depth ResNet as described in the paper
         'Deep Networks with Stochastic Depth'
         <https://arxiv.org/abs/1603.09382>
 
-        Args: 
-            filters_list: List of different filter sizes for each reisudal block 
-                in the network. Default value in paper is [16, 32, 64]. 
+        Args:
+            filters_list: List of different filter sizes for each reisudal block
+                in the network. Default value in paper is [16, 32, 64].
             N: Int controlling the overall depth of our ResNet. Total
-                number of layers is (6N+2). 
-            p_L: value representing the survival probability of the final layer, 
+                number of layers is (6N+2).
+            p_L: value representing the survival probability of the final layer,
                 all other survival probabilities are a linear function of p_L. Default
-            value in paper is 0.5 
+            value in paper is 0.5
 
         """
 
@@ -121,6 +147,10 @@ class StochasticDepthResNet(nn.Module):
         # Linear decay method for probabilities
         self.layer_probs = torch.tensor(
             [1-((i/(6*self.N))*(1-self.p_L)) for i in range(1, (6*self.N)+1)])
+
+        # Following paper, p_0 = 1
+
+        self.layer_probs[0] = 1.0
 
         self.first_layer = nn.Conv2d(
             3, filters_list[0], kernel_size=3, stride=1, padding=1, bias=False)

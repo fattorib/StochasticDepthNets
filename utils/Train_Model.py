@@ -8,19 +8,17 @@ from torch.utils.data import DataLoader
 from torchvision import transforms, utils
 import uuid
 import os
+import wandb
 
-# -------Apex Import-------
-try:
-    from apex import amp
-
-except ModuleNotFoundError:
-    pass
 
 # -------Benchmarks-------
 # 10 epochs:
 # 1070: 20.8 minutes ~ 16.15hrs to train model fully
 # V100 w/ amp: 14 minutes ~11hrs to train model fully
-# Hmmm... seems like there could be a bottleneck somewhere
+# Switching to torch 1.6 gives the following speeds:
+# 10 epochs:
+# 1070: 12 minutes ~ Validating every second epoch: 8.3 hrs to train model fully
+# P100: 6 minutes, fp32 ~ 6hr to train model fully - AMP did not do much to speed this up...
 
 
 class Train_Model():
@@ -42,8 +40,8 @@ class Train_Model():
             self.valloader = DataLoader(
                 val_data, batch_size=128, shuffle=True, num_workers=4, pin_memory=True)
 
-        self.max_epochs = 10
-        self.losses_increasing_stop = 100
+        self.max_epochs = 500
+        self.losses_increasing_stop = -1
         self.consecutive_losses_increasing = 0
         self.val_losses = []
         self.optimizer = torch.optim.SGD(
@@ -53,9 +51,13 @@ class Train_Model():
 
         self.run_id = uuid.uuid4().hex
 
-        # -------Apex-------
-        # self.model, self.optimizer = amp.initialize(
-        #     self.model, self.optimizer, opt_level="O1")
+        # Logging for Weights and Biases
+        wandb.init(project="StochasticDepthResNets")
+        wandb.run.name = self.run_id
+        wandb.run.save()
+        wandb.config.p_L = self.model.p_L
+        wandb.config.num_layers = (6*self.model.N)+2
+        wandb.config.max_epochs = self.max_epochs
 
     def train(self):
         self.model.cuda()
@@ -75,25 +77,24 @@ class Train_Model():
 
                 loss.backward()
 
-                # # -------Apex-------
-                # with amp.scale_loss(loss, self.optimizer) as scaled_loss:
-                #     scaled_loss.backward()
-
                 self.optimizer.step()
 
-            if (e+1) % 300 == 0 or (e+1) % 375 == 0:
+            if (e+1) % 250 == 0 or (e+1) % 375 == 0:
                 for g in self.optimizer.param_groups:
                     (g['lr']) = 0.1*(g['lr'])
 
-            val_loss_epoch = self.validation_model(
-                self.valloader)
-            self.val_losses.append(val_loss_epoch)
-            if self.val_losses[-1] > min(self.val_losses):
-                self.consecutive_losses_increasing += 1
-            else:
-                self.consecutive_losses_increasing = 0
-                print('Saving best weights')
-                self.save_model('best_weights')
+            if e % 1 == 0:
+                val_loss_epoch = self.validation_model(
+                    self.valloader)
+                wandb.log(
+                    {'Validation Loss': val_loss_epoch, 'Training Loss': running_loss/len(self.trainloader)})
+
+                self.val_losses.append(val_loss_epoch)
+                if self.val_losses[-1] > min(self.val_losses):
+                    self.consecutive_losses_increasing += 1
+                else:
+                    self.consecutive_losses_increasing = 0
+                    self.save_model('best_weights')
 
             if e % 50 == 0:
                 print(
@@ -113,7 +114,6 @@ class Train_Model():
         accuracy = 0
 
         if train:
-            # No Dropout
             self.model.eval()
             with torch.no_grad():
                 for inputs, labels in self.trainloader:
@@ -127,7 +127,6 @@ class Train_Model():
             print(
                 f'Train Accuracy: {100*accuracy/len(self.trainloader):.2f}%\n')
         else:
-            # No Dropout
             self.model.eval()
             with torch.no_grad():
                 for inputs, labels in self.testloader:
@@ -156,8 +155,8 @@ class Train_Model():
 
     def save_model(self, name):
         try:
-            os.makedirs(f'weights/{self.run_id}')
+            os.makedirs(f'Stochastic_Depth_Nets/weights/{self.run_id}')
         except OSError:
             pass
         torch.save(self.model.state_dict(),
-                   f'weights/{self.run_id}/{name}.pth')
+                   f'Stochastic_Depth_Nets/weights/{self.run_id}/{name}.pth')
