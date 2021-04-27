@@ -25,7 +25,7 @@ class ResidualBlock(nn.Module):
         self.out_filters = out_filters
         self.N = N
 
-        # TBD whether this is useful
+        # Useful for control flow
         self.np_lp = layer_probs.clone().detach()
 
         self.downsample = downsample
@@ -62,7 +62,6 @@ class ResidualBlock(nn.Module):
                 nn.BatchNorm2d(self.in_filters))
         self.apply(_weights_init)
 
-        # Register probs as buffers to avoid costly data transfers between cpu and gpu
         self._register(layer_probs)
 
     def _register(self, layer_probs):
@@ -74,6 +73,8 @@ class ResidualBlock(nn.Module):
             b_l = torch.bernoulli(self.layer_probs)
 
             for i in range(len(self.residual_block)):
+
+                # Control flow outside of PyTorch. Using torch.eq didn't work
                 if torch.rand(1)[0] <= self.np_lp[i]:
                     residual = x
                     x = self.residual_block[i](x)
@@ -143,13 +144,11 @@ class StochasticDepthResNet(nn.Module):
 
         self.p_L = p_L
 
-        self.pretrained = pretrained
         # Linear decay method for probabilities
         self.layer_probs = torch.tensor(
             [1-((i/(6*self.N))*(1-self.p_L)) for i in range(1, (6*self.N)+1)])
 
         # Following paper, p_0 = 1
-
         self.layer_probs[0] = 1.0
 
         self.first_layer = nn.Conv2d(
