@@ -42,8 +42,11 @@ def main():
     train_data, val_data = torch.utils.data.random_split(train_data, [
         45000, 5000])
 
-    # Training ResNet110
-    model = ResNet110(pretrained=False)
+    # # Training ResNet110
+    # model = ResNet110(pretrained=False)
+
+    # Training ResNet20
+    model = ResNet20(pretrained=False)
 
     model_class = Train_Model(model, train_data, test_data, val_data)
     t0 = time.time()

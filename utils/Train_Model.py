@@ -38,7 +38,8 @@ class Train_Model():
         self.test_data = test_data
         self.val_data = val_data
 
-        self.max_epochs = 500
+        # self.max_epochs = 500
+        self.max_epochs = 200
         self.losses_increasing_stop = -1
         self.consecutive_losses_increasing = 0
         self.run_id = uuid.uuid4().hex
