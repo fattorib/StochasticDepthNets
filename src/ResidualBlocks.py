@@ -6,7 +6,6 @@ import torch.nn.functional as F
 import copy
 import torch.nn.init as init
 from torch import Tensor
-from scipy.stats import bernoulli
 
 
 def _weights_init(m):
@@ -122,7 +121,7 @@ class ResidualBlock(nn.Module):
 
 class StochasticDepthResNet(nn.Module):
 
-    def __init__(self, filters_list, N, p_L=0.5):
+    def __init__(self, filters_list, N, p_L=0.5, pretrained=False):
         super(StochasticDepthResNet, self).__init__()
         """Stochastic depth ResNet as described in the paper
         'Deep Networks with Stochastic Depth'
@@ -144,6 +143,7 @@ class StochasticDepthResNet(nn.Module):
 
         self.p_L = p_L
 
+        self.pretrained = pretrained
         # Linear decay method for probabilities
         self.layer_probs = torch.tensor(
             [1-((i/(6*self.N))*(1-self.p_L)) for i in range(1, (6*self.N)+1)])
@@ -180,13 +180,13 @@ class StochasticDepthResNet(nn.Module):
         return x
 
 
-if __name__ == '__main__':
+# Following PyTorch model zoo structure
+def _resnet(layers, N, p_L, pretrained):
+    model = StochasticDepthResNet(filters_list=layers, N=N, p_L=p_L)
+    if pretrained:
+        model.load_state_dict(torch.load('models/ResNet110.pth'))
+    return model
 
-    import torch.autograd.profiler as profiler
-    model = StochasticDepthResNet(filters_list=[16, 32, 64], N=18)
-    inputs = torch.randn(5, 3, 32, 32)
 
-    with profiler.profile(record_shapes=True) as prof:
-        with profiler.record_function("model_inference"):
-            model(inputs)
-    print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
+def ResNet110(pretrained):
+    return _resnet(layers=[16, 32, 64], N=18, p_L=0.5, pretrained=pretrained)

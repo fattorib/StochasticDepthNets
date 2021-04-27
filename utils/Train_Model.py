@@ -29,9 +29,22 @@ class Train_Model():
         self.test_data = test_data
         self.val_data = val_data
 
+        self.max_epochs = 10
+        self.losses_increasing_stop = -1
+        self.consecutive_losses_increasing = 0
+        self.run_id = uuid.uuid4().hex
+
         if self.train_data is not None:
             self.trainloader = DataLoader(
                 self.train_data, batch_size=128, shuffle=True, num_workers=4, pin_memory=True)
+
+            # Logging for Weights and Biases
+            wandb.init(project="StochasticDepthResNets")
+            wandb.run.name = self.run_id
+            wandb.run.save()
+            wandb.config.p_L = self.model.p_L
+            wandb.config.num_layers = (6*self.model.N)+2
+            wandb.config.max_epochs = self.max_epochs
 
         self.testloader = DataLoader(
             test_data, batch_size=128, shuffle=False, num_workers=4, pin_memory=True)
@@ -40,24 +53,11 @@ class Train_Model():
             self.valloader = DataLoader(
                 val_data, batch_size=128, shuffle=True, num_workers=4, pin_memory=True)
 
-        self.max_epochs = 500
-        self.losses_increasing_stop = -1
-        self.consecutive_losses_increasing = 0
         self.val_losses = []
         self.optimizer = torch.optim.SGD(
             self.model.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4, nesterov=True)
 
         self.criterion = nn.CrossEntropyLoss()
-
-        self.run_id = uuid.uuid4().hex
-
-        # Logging for Weights and Biases
-        wandb.init(project="StochasticDepthResNets")
-        wandb.run.name = self.run_id
-        wandb.run.save()
-        wandb.config.p_L = self.model.p_L
-        wandb.config.num_layers = (6*self.model.N)+2
-        wandb.config.max_epochs = self.max_epochs
 
     def train(self):
         self.model.cuda()
@@ -155,8 +155,8 @@ class Train_Model():
 
     def save_model(self, name):
         try:
-            os.makedirs(f'Stochastic_Depth_Nets/weights/{self.run_id}')
+            os.makedirs(f'StochasticDepthResNets/weights/{self.run_id}')
         except OSError:
             pass
         torch.save(self.model.state_dict(),
-                   f'Stochastic_Depth_Nets/weights/{self.run_id}/{name}.pth')
+                   f'StochasticDepthResNets/weights/{self.run_id}/{name}.pth')
