@@ -3,6 +3,7 @@
 PyTorch implementation of ResNet110 as described in *Deep Networks with Stochastic Depth* ([Huang et al.](https://arxiv.org/abs/1603.09382))
 
 # Setup
+(?)
 
 # Training 
 ResNet110 was trained for 500 epochs, with a batch size of 128 on a 45000/5000 train/validation split. We train the model using SGD with momentum and anneal the learning rate by a factor of 10 at 
