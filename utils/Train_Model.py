@@ -204,6 +204,24 @@ class Train_Model():
         self.model.train()
         return val_loss/len(dataloader)
 
+    def filter_weight_visualizer(self, e, ch=0):
+        with torch.no_grad():
+            # Generate an image of first layer filters and log them
+            filter = self.model.first_layer.weight.data
+            n, c, w, h, = filter.shape
+
+            if c != 3:
+                filter = filter[:, ch, :, :].unsqueeze(dim=1)
+
+            grid = utils.make_grid(
+                filter, nrow=4, normalize=True, scale_each=True)
+
+            image_filter = grid.permute(1, 2, 0).detach().numpy()
+            images = wandb.Image(
+                image_filter, caption=f"Visualization of first layer filter weights at epoch{e}")
+
+            wandb.log({"Filter weights": images})
+
     def save_model(self, name):
         try:
             os.makedirs(

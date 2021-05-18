@@ -51,7 +51,7 @@ def main():
     meta_config = {'project name': "StochasticDepthResNets", 'batch size': 64,
                    'initial lr': 0.1, 'Optimizer': 'SGD',
                    'weight decay': 1e-4, 'lr annealing': True, 'accumulation': True,
-                   'accumulation steps': 2, 'max epochs': 200}
+                   'accumulation steps': 2, 'max epochs': 300}
 
     model_class = Train_Model(
         model, train_data, test_data, val_data, meta_config)
