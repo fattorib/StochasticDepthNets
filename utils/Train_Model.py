@@ -11,70 +11,98 @@ import os
 import wandb
 
 
-# -------Benchmarks-------
-# 10 epochs:
-# 1070: 20.8 minutes ~ 16.15hrs to train model fully
-# V100 w/ amp: 14 minutes ~11hrs to train model fully
-# Switching to torch 1.6 gives the following speeds:
-# 10 epochs:
-# 1070: 12 minutes ~ Validating every second epoch: 8.3 hrs to train model fully
-# P100: 6 minutes, fp32 ~ 6hr to train model fully - AMP did not do much to speed this up...
+import torch
+import torchvision
+import numpy as np
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
+from torchvision import transforms, utils
+import uuid
+import os
+import wandb
 
 
 class Train_Model():
 
-    def __init__(self, model, train_data, test_data, val_data):
-        """General class for training and logging models
-
-            - Logging is performed with Weights and Biases: <https://wandb.ai>
-
-            - Learning rate scheduling/max_epochs are specific to training ResNet110
-
-
-        """
-
+    def __init__(self, model, train_data, test_data, val_data, meta_config, lr_scheduler=True):
         self.model = model
         self.train_data = train_data
         self.test_data = test_data
         self.val_data = val_data
+        self.batch_size = int(meta_config['batch size'])
+        self.learning_rate_annealing = meta_config['lr annealing']
 
-        # self.max_epochs = 500
-        self.max_epochs = 200
-        self.losses_increasing_stop = -1
-        self.consecutive_losses_increasing = 0
-        self.run_id = uuid.uuid4().hex
+        """Base class for training models
+            meta_config (dict): Dictionrary containing meta hyperparam such as initial learning rate, batch size
+        """
 
         if self.train_data is not None:
             self.trainloader = DataLoader(
-                self.train_data, batch_size=128, shuffle=True, num_workers=4, pin_memory=True)
-
-            # Logging for Weights and Biases
-            wandb.init(project="StochasticDepthResNets")
-            wandb.run.name = self.run_id
-            wandb.run.save()
-            wandb.config.p_L = self.model.p_L
-            wandb.config.num_layers = (6*self.model.N)+2
-            wandb.config.max_epochs = self.max_epochs
+                self.train_data, batch_size=self.batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
         self.testloader = DataLoader(
-            test_data, batch_size=128, shuffle=False, num_workers=4, pin_memory=True)
+            test_data, batch_size=self.batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
         if self.val_data is not None:
             self.valloader = DataLoader(
-                val_data, batch_size=128, shuffle=True, num_workers=4, pin_memory=True)
+                val_data, batch_size=self.batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
+        self.max_epochs = meta_config['max epochs']
+        self.losses_increasing_stop = 50
+        self.consecutive_losses_increasing = 0
         self.val_losses = []
-        self.optimizer = torch.optim.SGD(
-            self.model.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4, nesterov=True)
+
+        self.accumulation_steps = meta_config['accumulation steps']
+
+        if meta_config['Optimizer'] == 'SGD':
+
+            self.optimizer = torch.optim.SGD(
+                self.model.parameters(), lr=meta_config['initial lr'],
+                momentum=0.9, weight_decay=meta_config['weight decay'], nesterov=True)
+
+        if meta_config['Optimizer'] == 'Adam':
+            self.optimizer = torch.optim.Adam(
+                self.model.parameters(), lr=meta_config['initial lr'], weight_decay=meta_config['weight decay'])
+
+        if meta_config['Optimizer'] == 'AdamW':
+            self.optimizer = torch.optim.AdamW(
+                self.model.parameters(), lr=meta_config['initial lr'], weight_decay=meta_config['weight decay'])
+
+        if lr_scheduler:
+            self.scheduler = torch.optim.lr_scheduler.CyclicLR(
+                self.optimizer, base_lr=meta_config['initial lr'], max_lr=4 *
+                meta_config['initial lr'], step_size_up=2000,
+                mode='triangular',
+                cycle_momentum=False)
 
         self.criterion = nn.CrossEntropyLoss()
+
+        self.run_id = uuid.uuid4().hex
+
+        # Logging for Weights and Biases
+        self.wandb_run = wandb.init(project=meta_config['project name'])
+        wandb.run.name = self.run_id
+        # wandb.run.save()
+        wandb.config.max_epochs = self.max_epochs
+        wandb.config.batch_size = meta_config['batch size']
+        wandb.config.optimizer = meta_config['Optimizer']
+        wandb.config.initial_lr = meta_config['initial lr']
+        wandb.config.weight_decay = meta_config['weight decay']
+        wandb.config.accumulation_steps = meta_config['accumulation steps']
+
+        try:
+            wandb.config.p_L = model.p_L
+
+        except ModuleAttributeError:
+            pass
 
     def train(self):
         self.model.cuda()
         for e in range(0, self.max_epochs):
             running_loss = 0
-
-            for images, labels in self.trainloader:
+            self.optimizer.zero_grad()
+            for i, (images, labels) in enumerate(self.trainloader):
 
                 images, labels = images.cuda(), labels.cuda()
 
@@ -85,13 +113,14 @@ class Train_Model():
                 loss = self.criterion(output, labels)
                 running_loss += loss.item()
 
+                loss /= self.accumulation_steps
+
                 loss.backward()
+                # self.optimizer.step()
 
-                self.optimizer.step()
-
-            if (e+1) % 250 == 0 or (e+1) % 375 == 0:
-                for g in self.optimizer.param_groups:
-                    (g['lr']) = 0.1*(g['lr'])
+                if (i+1) % self.accumulation_steps == 0:
+                    self.optimizer.step()
+                    self.optimizer.zero_grad()
 
             if e % 1 == 0:
                 val_loss_epoch = self.validation_model(
@@ -113,12 +142,24 @@ class Train_Model():
             if e % 50 == 0:
                 self.eval(train=False)
 
+            # Monitor validation loss for lr annealing
             if self.consecutive_losses_increasing == self.losses_increasing_stop:
-                print(f'Training ceased at {e} epochs.')
-                self.save_model('last_weights')
-                break
+
+                if self.learning_rate_annealing:
+                    # Clear consecutive loss history
+                    self.consecutive_losses_increasing = 0
+                    # wandb.log({'Annealed Epoch': e})
+                    print(f'Annealing learning rate at epoch {e}')
+                    for g in self.optimizer.param_groups:
+                        (g['lr']) = 0.1*(g['lr'])
+
+                else:
+                    print(f'Training ceased at {e} epochs.')
+                    self.save_model('last_weights')
+                    break
 
         self.save_model('last_weights')
+        wandb.run.finish()
 
     def eval(self, train):
         accuracy = 0
@@ -165,8 +206,9 @@ class Train_Model():
 
     def save_model(self, name):
         try:
-            os.makedirs(f'StochasticDepthResNets/weights/{self.run_id}')
+            os.makedirs(
+                f'StochasticDepthResNets/weights/imagenette/{self.run_id}')
         except OSError:
             pass
         torch.save(self.model.state_dict(),
-                   f'StochasticDepthResNets/weights/{self.run_id}/{name}.pth')
+                   f'StochasticDepthResNets/weights/imagenette/{self.run_id}/{name}.pth')

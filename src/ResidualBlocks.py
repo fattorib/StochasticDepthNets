@@ -189,3 +189,7 @@ def _resnet(layers, N, p_L, pretrained):
 
 def ResNet110(pretrained):
     return _resnet(layers=[16, 32, 64], N=18, p_L=0.5, pretrained=pretrained)
+
+
+def ResNet50(pretrained):
+    return _resnet(layers=[16, 32, 64], N=8, p_L=0.5, pretrained=pretrained)
