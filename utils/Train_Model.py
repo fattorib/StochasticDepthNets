@@ -3,19 +3,6 @@ import torchvision
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.datasets import MNIST
-from torch.utils.data import DataLoader
-from torchvision import transforms, utils
-import uuid
-import os
-import wandb
-
-
-import torch
-import torchvision
-import numpy as np
-import torch.nn as nn
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import transforms, utils
 import uuid
@@ -135,6 +122,10 @@ class Train_Model():
                     self.consecutive_losses_increasing = 0
                     self.save_model('best_weights')
 
+            # For storage, etc would be a good idea to do this less frequently after QAing it
+            if e % 10 == 0:
+                self.filter_weight_visualizer(e)
+
             if e % 50 == 0:
                 print(
                     f'Epoch:{e} - Train Loss: {running_loss/len(self.trainloader):.5f} - Validation Loss: {val_loss_epoch:.5f} - Consecutive Losses Increasing: {self.consecutive_losses_increasing}')
@@ -216,9 +207,9 @@ class Train_Model():
             grid = utils.make_grid(
                 filter, nrow=4, normalize=True, scale_each=True)
 
-            image_filter = grid.permute(1, 2, 0).detach().numpy()
+            image_filter = grid.permute(1, 2, 0).cpu().detach().numpy()
             images = wandb.Image(
-                image_filter, caption=f"Visualization of first layer filter weights at epoch{e}")
+                image_filter, caption=f"Visualization of first layer filter weights at epoch {e}")
 
             wandb.log({"Filter weights": images})
 
