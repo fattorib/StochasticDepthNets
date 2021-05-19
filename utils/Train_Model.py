@@ -19,6 +19,8 @@ class Train_Model():
         self.val_data = val_data
         self.batch_size = int(meta_config['batch size'])
         self.learning_rate_annealing = meta_config['lr annealing']
+        self.learning_rate_annealing_count = 0
+        self.max_lr_annealing = meta_config['max lr annealing steps']
 
         """Base class for training models
             meta_config (dict): Dictionrary containing meta hyperparam such as initial learning rate, batch size
@@ -26,19 +28,20 @@ class Train_Model():
 
         if self.train_data is not None:
             self.trainloader = DataLoader(
-                self.train_data, batch_size=self.batch_size, shuffle=True, num_workers=4, pin_memory=True)
+                self.train_data, batch_size=self.batch_size, shuffle=True, num_workers=2, pin_memory=True)
 
         self.testloader = DataLoader(
-            test_data, batch_size=self.batch_size, shuffle=False, num_workers=4, pin_memory=True)
+            test_data, batch_size=self.batch_size, shuffle=False, num_workers=2, pin_memory=True)
 
         if self.val_data is not None:
             self.valloader = DataLoader(
-                val_data, batch_size=self.batch_size, shuffle=True, num_workers=4, pin_memory=True)
+                val_data, batch_size=self.batch_size, shuffle=True, num_workers=2, pin_memory=True)
 
         self.max_epochs = meta_config['max epochs']
-        self.losses_increasing_stop = 50
+        self.losses_increasing_stop = meta_config['val_consecutive_losses_increasing']
         self.consecutive_losses_increasing = 0
         self.val_losses = []
+        self.warmup_steps = meta_config['warmup steps']
 
         self.accumulation_steps = meta_config['accumulation steps']
 
@@ -77,7 +80,8 @@ class Train_Model():
         wandb.config.initial_lr = meta_config['initial lr']
         wandb.config.weight_decay = meta_config['weight decay']
         wandb.config.accumulation_steps = meta_config['accumulation steps']
-
+        wandb.config.warmup_steps = meta_config['warmup steps']
+        wandb.config.val_lr_epochs = meta_config['val_consecutive_losses_increasing']
         try:
             wandb.config.p_L = model.p_L
 
@@ -87,6 +91,12 @@ class Train_Model():
     def train(self):
         self.model.cuda()
         for e in range(0, self.max_epochs):
+
+            # Code to account for warmup steps
+            if self.warmup_steps is not None and e == self.warmup_steps:
+                for g in self.optimizer.param_groups:
+                    (g['lr']) = 10*(g['lr'])
+
             running_loss = 0
             self.optimizer.zero_grad()
             for i, (images, labels) in enumerate(self.trainloader):
@@ -122,9 +132,8 @@ class Train_Model():
                     self.consecutive_losses_increasing = 0
                     self.save_model('best_weights')
 
-            # For storage, etc would be a good idea to do this less frequently after QAing it
-            if e % 10 == 0:
-                self.filter_weight_visualizer(e)
+            # if e % 100 == 0:
+            #     self.filter_weight_visualizer(e)
 
             if e % 50 == 0:
                 print(
@@ -139,10 +148,17 @@ class Train_Model():
                 if self.learning_rate_annealing:
                     # Clear consecutive loss history
                     self.consecutive_losses_increasing = 0
-                    # wandb.log({'Annealed Epoch': e})
-                    print(f'Annealing learning rate at epoch {e}')
-                    for g in self.optimizer.param_groups:
-                        (g['lr']) = 0.1*(g['lr'])
+                    self.learning_rate_annealing_count += 1
+                    if self.learning_rate_annealing_count == self.max_lr_annealing:
+                        print(f'Training ceased at {e} epochs.')
+                        self.save_model('last_weights')
+                        break
+
+                    else:
+                        # wandb.log({'Annealed Epoch': e})
+                        print(f'Annealing learning rate at epoch {e}')
+                        for g in self.optimizer.param_groups:
+                            (g['lr']) = 0.1*(g['lr'])
 
                 else:
                     print(f'Training ceased at {e} epochs.')
