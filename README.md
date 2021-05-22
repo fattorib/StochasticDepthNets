@@ -10,4 +10,4 @@ Experiments attempted
 
 Transfer learning benchmarks:
 ResNet18 - 5 epochs: 94% acc
-ResNet101 - 10 epochs: 
+ResNet101 - 10 epochs: 97.68%
