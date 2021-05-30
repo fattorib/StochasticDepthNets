@@ -180,15 +180,19 @@ class StochasticDepthResNet(nn.Module):
 
 
 # Following PyTorch model zoo structure
-def _resnet(layers, N, p_L, pretrained):
+def _resnet(layers, N, p_L, pretrained, cpu=False):
     model = StochasticDepthResNet(filters_list=layers, N=N, p_L=p_L)
-    if pretrained:
+    if pretrained and cpu == False:
         model.load_state_dict(torch.load('models/ResNet110.pth'))
+    elif pretrained and cpu == True:
+        model.load_state_dict(torch.load(
+            'models/ResNet110.pth', map_location=torch.device('cpu')))
+
     return model
 
 
-def ResNet110(pretrained):
-    return _resnet(layers=[16, 32, 64], N=18, p_L=0.5, pretrained=pretrained)
+def ResNet110(pretrained, cpu=False):
+    return _resnet(layers=[16, 32, 64], N=18, p_L=0.5, cpu=cpu, pretrained=pretrained,)
 
 
 def ResNet50(pretrained):

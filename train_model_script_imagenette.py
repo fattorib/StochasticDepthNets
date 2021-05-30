@@ -49,7 +49,7 @@ def main():
     model = ResNet50(pretrained=False)
 
     meta_config = {'project name': "StochasticDepthResNets", 'batch size': 64,
-                   'initial lr': 0.1, 'Optimizer': 'SGD',
+                   'initial lr': 0.01, 'warmup steps': 10, 'Optimizer': 'SGD',
                    'weight decay': 1e-4, 'lr annealing': True, 'accumulation': True,
                    'accumulation steps': 2, 'max epochs': 300}
 
